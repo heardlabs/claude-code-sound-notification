@@ -1,0 +1,10 @@
+name: test
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: shellcheck -S warning notify.sh install.sh tests/*.sh
+      - run: bash tests/notify.test.sh
+      - run: bash tests/install.test.sh

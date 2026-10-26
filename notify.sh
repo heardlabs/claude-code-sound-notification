@@ -85,6 +85,7 @@ play() { # play <done|input>
   if [ "$1" = "done" ]; then custom="${NOTIFY_SOUND_DONE:-}"; name="Glass"; id="complete"
   else custom="${NOTIFY_SOUND_INPUT:-}"; name="Ping"; id="message-new-instant"; fi
   [ "$custom" = "none" ] && return 0
+  # shellcheck disable=SC2088  # a literal "~/" prefix is what we are looking for
   case "$custom" in "~/"*) custom="$HOME/${custom#\~/}" ;; esac   # ~ is not expanded in settings.json "env"
   if has afplay; then
     f="${custom:-$name}"
@@ -144,7 +145,7 @@ speak() { # speak <text>
 run() {
   if [ "$kind" = "test" ]; then
     popup "$app" "Test: this is the sound when $app finishes."
-    play done; speak "$app finished."
+    play "done"; speak "$app finished."
     sleep 1
     popup "$app" "Test: this is the sound when $app needs you."
     play input; speak "$app needs your input."

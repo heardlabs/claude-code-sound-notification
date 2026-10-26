@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Tests for notify.sh with fake sound, popup and voice programs (no audio needed).
 #   bash tests/notify.test.sh
+# Variables such as rc are read inside the quoted conditions that check() evals.
+# shellcheck disable=SC2034
 set -u
 here="$(cd "$(dirname "$0")" && pwd)"
 notify="$here/../notify.sh"
@@ -26,7 +28,7 @@ F
 # Run notify.sh with only the given fake dir plus a few basic tools on PATH, so real
 # players on the test machine are never picked up. NOTIFY_SYNC=1 runs it in the foreground.
 jqdir="$work/core"; mkdir -p "$jqdir"
-for t in jq cat tr head basename dirname sleep date env sh bash; do ln -s "$(command -v "$t")" "$jqdir/$t"; done
+for t in jq cat tr head sed basename dirname sleep date env sh bash; do ln -s "$(command -v "$t")" "$jqdir/$t"; done
 run() { local bin="$1"; shift; rm -f "$work/log"; env -i HOME="$HOME" PATH="$bin:$jqdir" NOTIFY_SYNC=1 ${ENVS:-} bash "$notify" "$@"; }
 log() { cat "$work/log" 2>/dev/null; }
 
@@ -84,6 +86,11 @@ rm -f "$work/log"; env -i HOME="$HOME" PATH="$mac:$jqdir" NOTIFY_SYNC=1 bash "$w
 check "a mute file next to the script silences it" '[ -z "$(log)" ]' "$(log)"
 rm -f "$work/mute"
 
+# ~ in a sound path is expanded (settings.json "env" does not expand it)
+mkdir -p "$work/home/sounds"; touch "$work/home/sounds/done.aiff"
+rm -f "$work/log"; env -i HOME="$work/home" PATH="$mac:$jqdir" NOTIFY_SYNC=1 NOTIFY_SOUND_DONE="~/sounds/done.aiff" bash "$notify" <<<"$stop"
+check "a ~/ sound path is expanded" "log | grep -q \"^afplay|$work/home/sounds/done.aiff|\"" "$(log)"
+
 # spoken line
 fake "$mac" say
 ENVS="NOTIFY_SPEAK=1 NOTIFY_VOICE=Samantha" run "$mac" <<<"$stop" >/dev/null
@@ -100,9 +107,17 @@ fi
 touch "$work/done.oga"
 ENVS="NOTIFY_SOUND_DONE=$work/done.oga" run "$lin" <<<"$stop" >/dev/null
 check "Linux plays a custom file with paplay" "log | grep -q \"^paplay|$work/done.oga|\"" "$(log)"
-check "Linux shows the popup with notify-send" 'log | grep -q "^notify-send|-a Claude Code Claude Code Claude Code finished in billing-api.|"' "$(log)"
+check "Linux shows the popup with notify-send" 'log | grep -q "^notify-send|-a Claude Code -- Claude Code Claude Code finished in billing-api.|"' "$(log)"
 ENVS="NOTIFY_SPEAK=1" run "$lin" <<<"$perm" >/dev/null
 check "Linux speaks with espeak-ng on stdin" 'log | grep -q "^espeak-ng|--stdin|Claude Code needs your permission in billing-api.$"' "$(log)"
+
+# aplay reads WAV only: never hand it an Ogg file
+ap="$work/aplay"; fake "$ap" aplay
+ENVS="NOTIFY_SOUND_DONE=$work/done.oga NOTIFY_POPUP=0" run "$ap" <<<"$stop" >/dev/null
+check "aplay is not given an .oga file" '! log | grep -q "^aplay"' "$(log)"
+touch "$work/done.wav"
+ENVS="NOTIFY_SOUND_DONE=$work/done.wav NOTIFY_POPUP=0" run "$ap" <<<"$stop" >/dev/null
+check "aplay plays a .wav file" "log | grep -q \"^aplay|-q $work/done.wav|\"" "$(log)"
 
 # Linux without sound files: canberra-gtk-play by sound id
 can="$work/canberra"; fake "$can" canberra-gtk-play notify-send
@@ -123,6 +138,27 @@ check "Codex notify: agent-turn-complete plays the done sound" 'log | grep -q "G
 check "Codex notify: the popup says Codex and the project" 'log | grep -q "end run Codex Codex finished in mobile.|"' "$(log)"
 run "$mac" --codex <<<"$codexperm" >/dev/null
 check "Codex PermissionRequest hook plays the input sound" 'log | grep -q "Ping.aiff" && log | grep -q "Codex needs your approval in mobile."' "$(log)"
+
+# without jq the event is still read
+ENVS="NOTIFY_TEST_NO_JQ=1" run "$mac" <<<"$perm" >/dev/null
+check "without jq: permission_prompt still plays the input sound" 'log | grep -q "Ping.aiff" && log | grep -q "(billing-api)"' "$(log)"
+ENVS="NOTIFY_TEST_NO_JQ=1" run "$mac" <<<"$stop" >/dev/null
+check "without jq: Stop still plays the done sound" 'log | grep -q "Glass.aiff"' "$(log)"
+ENVS="NOTIFY_TEST_NO_JQ=1" run "$mac" "$codex" </dev/null >/dev/null
+check "without jq: Codex notify still works" 'log | grep -q "Codex finished in mobile."' "$(log)"
+
+# the other input-needed notification types
+for t in elicitation_dialog elicitation_url_dialog agent_needs_input; do
+  run "$mac" <<<"{\"hook_event_name\":\"Notification\",\"cwd\":\"/w/app\",\"notification_type\":\"$t\"}" >/dev/null
+  check "$t plays the input sound" 'log | grep -q "Ping.aiff" && log | grep -q "needs your input in app."' "$(log)"
+done
+
+# WSL: a Linux sound path is converted for PowerShell
+printf '#!/bin/sh\nprintf "%%s\\n" "C:/converted.wav"\n' > "$win/wslpath"
+chmod +x "$win/wslpath"; touch "$work/w.wav"
+ENVS="NOTIFY_SOUND_DONE=$work/w.wav NOTIFY_POPUP=0" run "$win" <<<"$stop" >/dev/null
+check "WSL: a Linux path goes through wslpath -w" 'log | grep -q "SoundPlayer.*|C:.converted.wav/$"' "$(log)"
+rm -f "$win/wslpath"
 
 # unknown or empty input does nothing
 run "$mac" <<<'not json' >/dev/null

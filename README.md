@@ -6,7 +6,7 @@ To get a sound and a desktop notification when Claude Code finishes a task or ne
 curl -fsSL https://raw.githubusercontent.com/heardlabs/claude-code-sound-notification/main/install.sh | bash
 ```
 
-It adds two [Claude Code hooks](https://code.claude.com/docs/en/hooks) to `~/.claude/settings.json`: a `Stop` hook that plays a "done" sound when Claude finishes responding, and a `Notification` hook that plays a different sound when Claude needs your permission or input. It merges into your settings with `jq`, keeps your other hooks, and backs up the file first. Free, MIT, no API key, no account.
+It adds two [Claude Code hooks](https://code.claude.com/docs/en/hooks) to `~/.claude/settings.json`: a `Stop` hook that plays a "done" sound when Claude finishes responding, and a `Notification` hook that plays a different sound when Claude needs your permission or input. It merges into your settings with `jq`, keeps your other hooks, and backs up the file first. The hook script itself uses `jq` when it can find it and falls back to plain text matching when it cannot. Free, MIT, no API key, no account.
 
 [![test](https://github.com/heardlabs/claude-code-sound-notification/actions/workflows/test.yml/badge.svg)](https://github.com/heardlabs/claude-code-sound-notification/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -65,7 +65,7 @@ Type `/hooks` in Claude Code to see the new hooks under `Stop` and `Notification
 curl -fsSL https://raw.githubusercontent.com/heardlabs/claude-code-sound-notification/main/install.sh | bash -s -- --uninstall
 ```
 
-This removes only the hooks that point at `claude-code-sound-notification/notify.sh`, backs up `settings.json` first, and deletes the script folder. Your other hooks and settings stay as they were.
+This removes only the hooks that run `claude-code-sound-notification/notify.sh` (including any you added by hand, since the script folder is deleted), backs up `settings.json` first, and deletes the script folder. Your other hooks and settings stay as they were.
 
 ## Supported systems
 
@@ -75,7 +75,7 @@ This removes only the hooks that point at `claude-code-sound-notification/notify
 | Linux | `paplay`, `pw-play`, `canberra-gtk-play` or `aplay` | `notify-send` | `spd-say`, `espeak-ng` or `espeak` |
 | Windows (Git Bash) and WSL | PowerShell `System.Media.SoundPlayer` | PowerShell tray balloon | PowerShell `System.Speech` |
 
-On Linux, `sudo apt install pulseaudio-utils libnotify-bin` covers the sound and the popup on Debian and Ubuntu. The scripts are tested in CI with fake players and notifiers on Ubuntu. They have not been tested with real audio on macOS or Windows; if a sound does not play for you, please open an issue.
+On Linux, `sudo apt install pulseaudio-utils libnotify-bin` covers the sound and the popup on Debian and Ubuntu. The scripts are tested in CI on Ubuntu with fake players and notifiers. They have not been tested with real audio on any system; if a sound does not play for you, please open an issue.
 
 ## Options
 
@@ -87,7 +87,7 @@ Set these in your shell profile, or in the `env` block of `~/.claude/settings.js
 | `NOTIFY_SOUND_INPUT` | Sound when Claude needs you (same forms) | `Submarine`, `none` |
 | `NOTIFY_POPUP` | `0` for sound only, no desktop notification | `0` |
 | `NOTIFY_SPEAK` | `1` to also say a short line, such as "Claude Code finished in my-app" | `1` |
-| `NOTIFY_VOICE` | Voice for the spoken line | `Samantha`, `en-us` |
+| `NOTIFY_VOICE` | Voice for the spoken line (`say -v`, `spd-say -y` or `espeak-ng -v`) | `Samantha` (macOS), `en-us` (espeak-ng) |
 | `NOTIFY_MUTE` | `1` turns everything off | `1` |
 
 To mute without restarting anything: `touch ~/.claude/claude-code-sound-notification/mute`. Delete the file to unmute.
@@ -100,12 +100,12 @@ macOS sound names are the files in `/System/Library/Sounds` (Basso, Blow, Bottle
 Add a `Stop` hook to `~/.claude/settings.json` that plays a sound. The installer above does it for you. `Stop` runs when Claude finishes responding. It does not run if you interrupt Claude, and an API error fires `StopFailure` instead ([hooks docs, Stop](https://code.claude.com/docs/en/hooks#stop)).
 
 **How do I get a notification when Claude Code needs my permission?**
-Use a `Notification` hook with the `permission_prompt` matcher, which the installer adds. Note the timing: Claude Code sends `permission_prompt` only after the prompt has waited about six seconds without you typing, the same timing as its own desktop notifications, so you mostly hear it when you have looked away ([hooks docs, Notification](https://code.claude.com/docs/en/hooks#notification)). If you want a ping the moment Claude asks, add the same command under a `PermissionRequest` hook; that one fires on every permission prompt, even while you are watching.
+Use a `Notification` hook with the `permission_prompt` matcher, which the installer adds. Note the timing: in the terminal, Claude Code sends `permission_prompt` only after the prompt has waited about six seconds and each keystroke defers it, so you mostly hear it when you have looked away. In the desktop app and the VS Code extension it comes about six seconds after Claude asks, whether or not you are typing ([hooks docs, Notification](https://code.claude.com/docs/en/hooks#notification)). If you want a ping the moment Claude asks, add the same command under a `PermissionRequest` hook and remove `permission_prompt` from the `Notification` matcher, or you will hear two sounds. `PermissionRequest` fires on tool permission prompts even while you are watching, but not for a sandboxed command's network request.
 
 **Can I get pinged when Claude is idle and waiting for my reply?**
 Yes: `bash install.sh --with-idle` adds `idle_prompt`, which Claude Code sends about 60 seconds after it finishes responding if you have not typed since. It is off by default because the `Stop` sound already tells you Claude is done.
 
-**Why do I hear nothing on macOS?**
+**Why is there no sound or no banner on macOS?**
 If the sound plays but no banner shows, `osascript` notifications go through Script Editor, which may not have notification permission. Run `osascript -e 'display notification "test"'` once, then turn on Script Editor in System Settings > Notifications ([Claude Code hooks guide](https://code.claude.com/docs/en/hooks-guide)). Installing `terminal-notifier` (`brew install terminal-notifier`) avoids this. If there is no sound either, check that `NOTIFY_MUTE` is not set and that no `mute` file exists.
 
 **Why do I hear nothing on Linux or over SSH?**
@@ -123,7 +123,7 @@ Yes, with a few lines of config, since Codex reads its own config, not Claude Co
   notify = ["bash", "/Users/you/.claude/claude-code-sound-notification/notify.sh"]
   ```
 
-- *Sound when Codex asks for approval:* add a `PermissionRequest` hook to `~/.codex/hooks.json`, then open `/hooks` in Codex once to review and trust it, since Codex skips new hooks until you do ([Codex docs, Hooks](https://developers.openai.com/codex/hooks)):
+- *Sound when Codex asks for approval:* add a `PermissionRequest` hook to `~/.codex/hooks.json`, merging it into the file if you already have one, then open `/hooks` in Codex once to review and trust it, since Codex skips new hooks until you do ([Codex docs, Hooks](https://developers.openai.com/codex/hooks)):
 
   ```json
   {
@@ -135,7 +135,7 @@ Yes, with a few lines of config, since Codex reads its own config, not Claude Co
   }
   ```
 
-- *No script at all:* Codex's built-in terminal notifications can cover both events. Set `notifications = ["agent-turn-complete", "approval-requested"]` under `[tui]` in `config.toml`. They fire when the terminal is unfocused by default, as an OSC 9 notification or a terminal bell, depending on your terminal.
+- *No script at all:* Codex's built-in terminal notifications can cover both events. Set `notifications = ["agent-turn-complete", "approval-requested"]` under `[tui]` in `config.toml`. They fire when the terminal is unfocused (the default `notification_condition`), as an OSC 9 notification or a terminal bell, depending on your terminal ([Codex configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference)).
 
 **Does it send anything over the network?**
 No. `notify.sh` only runs local programs (`afplay`, `paplay`, `notify-send`, PowerShell and so on). The one-line installer downloads the script from this repo; after that nothing is fetched.
@@ -154,8 +154,8 @@ Two free options from the same team:
 
 ## Tests
 
-- `bash tests/notify.test.sh`: checks on `notify.sh` with fake players, notifiers and voices (macOS, Linux, Windows and WSL paths, every event type, Codex input, options, mute, and that it returns at once).
-- `bash tests/install.test.sh`: checks on the installer (merging into existing settings, backups, no duplicates on a second run, uninstall that restores your file exactly, refusing invalid JSON, symlinked settings, missing `jq`).
+- `bash tests/notify.test.sh`: checks on `notify.sh` with fake players, notifiers and voices (macOS, Linux, Windows and WSL paths, each event type it handles, Codex input, options, mute, running without `jq`, and that it returns at once).
+- `bash tests/install.test.sh`: checks on the installer (merging into existing settings, backups, no duplicates on a second run, keeping your own hooks on reinstall, uninstall that gives back your settings, refusing invalid JSON, symlinked settings, missing `jq`).
 
 Both run in [GitHub Actions](.github/workflows/test.yml) on Ubuntu, along with `shellcheck`.
 

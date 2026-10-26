@@ -2,6 +2,8 @@
 # Tests for install.sh: it must merge into settings.json, never overwrite, back up first,
 # be safe to run twice, and remove only its own hooks on --uninstall.
 #   bash tests/install.test.sh
+# Variables such as rc are read inside the quoted conditions that check() evals.
+# shellcheck disable=SC2034
 set -u
 here="$(cd "$(dirname "$0")" && pwd)"
 install="$here/../install.sh"
@@ -79,10 +81,37 @@ check "install then uninstall gives back the same file" '[ "$(jq -cS . "$s")" = 
 before="$(cat "$s")"; inst --uninstall; rc=$?
 check "uninstall with nothing installed exits 0 and changes nothing" '[ $rc -eq 0 ] && [ "$(cat "$s")" = "$before" ]'
 
+# 7b. a reinstall keeps a hand-added PermissionRequest hook and unrelated commands that mention the path
+rm -rf "$cfg"; mkdir -p "$cfg"
+cat > "$s" <<J
+{"hooks": {
+  "PermissionRequest": [{"hooks": [{"type": "command", "command": "bash ~/.claude/claude-code-sound-notification/notify.sh", "async": true}]}],
+  "PostToolUse": [{"hooks": [{"type": "command", "command": "echo claude-code-sound-notification/notify.sh is cool"}]}]
+}}
+J
+inst; inst
+check "reinstall keeps a hand-added PermissionRequest hook" '[ "$(q ".hooks.PermissionRequest | length")" = 1 ]' "$(cat "$s")"
+check "reinstall keeps an unrelated command that mentions the path" '[ "$(q ".hooks.PostToolUse[0].hooks[0].command")" = "echo claude-code-sound-notification/notify.sh is cool" ]' "$(cat "$s")"
+check "reinstall still has exactly one Stop and one Notification entry" '[ "$(q ".hooks.Stop | length")" = 1 ] && [ "$(q ".hooks.Notification | length")" = 1 ]' "$(cat "$s")"
+inst --uninstall
+check "uninstall removes the hand-added hook that runs our script too" '[ "$(q ".hooks.PermissionRequest")" = null ]' "$(cat "$s")"
+check "uninstall keeps the unrelated command" '[ "$(q ".hooks.PostToolUse | length")" = 1 ]' "$(cat "$s")"
+
+# 7c. an empty settings.json is treated as {}
+rm -rf "$cfg"; mkdir -p "$cfg"; : > "$s"
+inst; rc=$?
+check "an empty settings.json is treated as {}" '[ $rc -eq 0 ] && [ "$(q ".hooks.Stop | length")" = 1 ]' "$(cat "$work/out")"
+
 # 8. invalid JSON is never touched
+rm -rf "$cfg"; mkdir -p "$cfg"
 echo '{"theme": "dark",' > "$s"; cp "$s" "$work/broken"
 inst; rc=$?
 check "refuses invalid settings.json without changing it" '[ $rc -ne 0 ] && cmp -s "$s" "$work/broken"' "$(cat "$work/out")"
+check "a refused install does not copy the script either" '[ ! -e "$cfg/claude-code-sound-notification" ]'
+check "a refused install leaves no temp files" '[ -z "$(ls -A "$cfg" | grep -v -e "^settings.json$" -e "^settings.json.bak-")" ]' "$(ls -A "$cfg")"
+printf '{"a":1}{"b":2}' > "$s"; cp "$s" "$work/two"
+inst; rc=$?
+check "refuses a file with two JSON objects" '[ $rc -ne 0 ] && cmp -s "$s" "$work/two"' "$(cat "$work/out")"
 
 # 9. unexpected hooks shape is never touched
 echo '{"hooks": {"Stop": "oops"}}' > "$s"; cp "$s" "$work/odd"

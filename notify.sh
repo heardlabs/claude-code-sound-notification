@@ -17,7 +17,7 @@
 #                          (Glass, Ping, Hero...), or "none"
 #   NOTIFY_SOUND_INPUT     sound when it needs you (same forms)
 #   NOTIFY_SPEAK=1         also say a short line ("Claude Code finished in my-app")
-#   NOTIFY_VOICE           voice for NOTIFY_SPEAK
+#   NOTIFY_VOICE           voice for NOTIFY_SPEAK (say -v, spd-say -y, espeak-ng -v)
 # Or create a file named "mute" next to this script to silence it without a restart.
 set -u
 
@@ -37,23 +37,31 @@ esac
 [ "${NOTIFY_MUTE:-0}" = "1" ] && exit 0
 [ -n "$here" ] && [ -e "$here/mute" ] && exit 0
 
-field() { # field <jq path>; empty when jq is missing or the field is absent
-  has jq || return 0
-  printf '%s' "$input" | jq -r "$1 // empty" 2>/dev/null | head -n 1
+# jq, if installed (GUI-launched apps on macOS often lack Homebrew on PATH, so look there too).
+jq_bin="$(command -v jq 2>/dev/null || true)"
+for j in /opt/homebrew/bin/jq /usr/local/bin/jq /usr/bin/jq; do [ -n "$jq_bin" ] && break; [ -x "$j" ] && jq_bin="$j"; done
+[ "${NOTIFY_TEST_NO_JQ:-0}" = "1" ] && jq_bin=""   # used by the tests only
+
+field() { # field <key>: a top-level string field of the event JSON, empty when absent
+  if [ -n "$jq_bin" ]; then
+    printf '%s' "$input" | "$jq_bin" -r --arg k "$1" '.[$k] // empty | strings' 2>/dev/null | head -n 1
+  else # no jq: a plain match is enough for the few simple fields read here
+    printf '%s' "$input" | tr '\n' ' ' | sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" | head -n 1
+  fi
 }
 
 kind=""; reason=""
 if [ "$test_mode" = 1 ]; then
   kind="test"
 else
-  event="$(field .hook_event_name)"
-  [ -n "$event" ] || event="$(field .type)"
+  event="$(field hook_event_name)"
+  [ -n "$event" ] || event="$(field type)"
   [ "$event" = "agent-turn-complete" ] && app="Codex"
   case "$event" in
     Stop|agent-turn-complete) kind="done" ;;
     PermissionRequest) kind="input"; reason="needs your approval" ;;
     Notification)
-      case "$(field .notification_type)" in
+      case "$(field notification_type)" in
         permission_prompt) kind="input"; reason="needs your permission" ;;
         idle_prompt) kind="input"; reason="is waiting for you" ;;
         elicitation_dialog|elicitation_url_dialog|agent_needs_input) kind="input"; reason="needs your input" ;;
@@ -63,9 +71,9 @@ else
   esac
 fi
 
-cwd="$(field .cwd)"
+cwd="$(field cwd)"
 project="$(basename "${cwd:-$PWD}")"
-detail="$(field .message)"   # Claude Code's own notification text, when there is one
+detail="$(field message)"   # Claude Code's own notification text, when there is one
 
 line() { # line <kind> <reason>: the popup body and the spoken sentence
   if [ "$1" = "done" ]; then echo "$app finished in $project."
@@ -77,6 +85,7 @@ play() { # play <done|input>
   if [ "$1" = "done" ]; then custom="${NOTIFY_SOUND_DONE:-}"; name="Glass"; id="complete"
   else custom="${NOTIFY_SOUND_INPUT:-}"; name="Ping"; id="message-new-instant"; fi
   [ "$custom" = "none" ] && return 0
+  case "$custom" in "~/"*) custom="$HOME/${custom#\~/}" ;; esac   # ~ is not expanded in settings.json "env"
   if has afplay; then
     f="${custom:-$name}"
     [ -f "$f" ] || f="/System/Library/Sounds/$f.aiff"
@@ -87,10 +96,13 @@ play() { # play <done|input>
     elif [ -f "$f" ] && has pw-play; then pw-play "$f"
     elif has canberra-gtk-play; then
       if [ -f "$f" ]; then canberra-gtk-play -f "$f"; else canberra-gtk-play -i "$id"; fi
-    elif [ -f "$f" ] && has aplay; then aplay -q "$f"
+    elif [ -f "$f" ] && has aplay; then
+      case "$f" in *.wav|*.WAV) aplay -q "$f" ;; esac   # aplay reads WAV only
     fi
   elif has powershell.exe; then
     if [ "$1" = "done" ]; then f="${custom:-Windows Notify System Generic.wav}"; else f="${custom:-Windows Ding.wav}"; fi
+    # On WSL, turn a Linux path into one Windows can open.
+    if [ -f "$f" ] && has wslpath; then f="$(wslpath -w "$f")"; fi
     # The file name goes in on stdin, so no quoting is needed across the WSL boundary.
     printf '%s\n' "$f" | powershell.exe -NoProfile -NonInteractive -Command \
       '$f = [Console]::In.ReadLine(); if (-not (Test-Path $f)) { $f = Join-Path $env:WINDIR ("Media\" + $f) }; if (Test-Path $f) { (New-Object System.Media.SoundPlayer $f).PlaySync() } else { [System.Media.SystemSounds]::Asterisk.Play(); Start-Sleep -Seconds 1 }'
@@ -105,7 +117,7 @@ popup() { # popup <title> <body>
     # Text goes in as arguments, never pasted into the AppleScript source.
     osascript -e 'on run argv' -e 'display notification (item 2 of argv) with title (item 1 of argv)' -e 'end run' "$1" "$2"
   elif has notify-send; then
-    notify-send -a "$app" "$1" "$2"
+    notify-send -a "$app" -- "$1" "$2"
   elif has powershell.exe; then
     printf '%s\n%s\n' "$1" "$2" | powershell.exe -NoProfile -NonInteractive -Command \
       'Add-Type -AssemblyName System.Windows.Forms, System.Drawing; $t = [Console]::In.ReadLine(); $m = [Console]::In.ReadLine(); $n = New-Object System.Windows.Forms.NotifyIcon; $n.Icon = [System.Drawing.SystemIcons]::Information; $n.Visible = $true; $n.ShowBalloonTip(5000, $t, $m, "Info"); Start-Sleep -Seconds 6; $n.Dispose()'

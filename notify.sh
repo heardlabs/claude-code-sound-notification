@@ -101,8 +101,9 @@ play() { # play <done|input>
     fi
   elif has powershell.exe; then
     if [ "$1" = "done" ]; then f="${custom:-Windows Notify System Generic.wav}"; else f="${custom:-Windows Ding.wav}"; fi
-    # On WSL, turn a Linux path into one Windows can open.
-    if [ -f "$f" ] && has wslpath; then f="$(wslpath -w "$f")"; fi
+    # On WSL or Git Bash, turn a Unix-style path into one Windows can open.
+    if [ -f "$f" ] && has wslpath; then f="$(wslpath -w "$f")"
+    elif [ -f "$f" ] && has cygpath; then f="$(cygpath -w "$f")"; fi   # Git Bash
     # The file name goes in on stdin, so no quoting is needed across the WSL boundary.
     printf '%s\n' "$f" | powershell.exe -NoProfile -NonInteractive -Command \
       '$f = [Console]::In.ReadLine(); if (-not (Test-Path $f)) { $f = Join-Path $env:WINDIR ("Media\" + $f) }; if (Test-Path $f) { (New-Object System.Media.SoundPlayer $f).PlaySync() } else { [System.Media.SystemSounds]::Asterisk.Play(); Start-Sleep -Seconds 1 }'

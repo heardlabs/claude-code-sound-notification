@@ -105,7 +105,7 @@ fi
 
 mkdir -p "$config_dir"
 check_settings
-case "$dest" in *"'"*) echo "install.sh: the path $dest contains a single quote; set CLAUDE_CONFIG_DIR to a simpler path." >&2; exit 64 ;; esac
+case "$dest" in *"'"*|*'"'*) echo "install.sh: the path $dest contains a quote character; set CLAUDE_CONFIG_DIR to a simpler path." >&2; exit 64 ;; esac
 
 # 1. Put notify.sh somewhere stable, so the hooks keep working if this folder is deleted.
 mkdir -p "$dest"

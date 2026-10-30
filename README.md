@@ -145,7 +145,7 @@ Set `NOTIFY_SOUND_DONE` and `NOTIFY_SOUND_INPUT` (see [Options](#options)).
 
 ## Want it spoken in plain English?
 
-A sound tells you that something happened, not what. [Heard](https://heard.dev/?utm_source=github&utm_medium=organic&utm_campaign=sound-notification) (heard.dev), the voice layer for coding agents, is a Mac app (macOS 14 or later) that follows your Claude Code and Codex sessions and tells you in a sentence or two when an agent finishes, fails or needs your approval, and on Heard Power you can talk back. There is a free tier and a 14-day Heard Power trial with no card required.
+A sound tells you that something happened, not what. [Heard](https://heard.dev/?utm_source=github&utm_medium=organic&utm_campaign=sound-notification) (heard.dev), the voice context layer for agents, is a Mac app (macOS 14 or later) that follows your Claude Code and Codex sessions and tells you in a sentence or two when an agent finishes, fails or needs your approval, and on Heard Power you can talk back. There is a free tier and a 14-day Heard Power trial with no card required.
 
 Two free options from the same team:
 

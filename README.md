@@ -1,4 +1,4 @@
-# claude-code-sound-notification: play a sound when Claude Code finishes or needs your input
+# Heard sound notification for Claude Code: play a sound when Claude Code finishes or needs your input
 
 A free Claude Code sound notification from [Heard](https://heard.dev/?utm_source=github&utm_medium=organic&utm_campaign=sound-notification) (heard.dev), the voice context layer for agents. To get a sound and a desktop notification when Claude Code finishes a task or needs your permission, run this one command (needs `jq`):
 

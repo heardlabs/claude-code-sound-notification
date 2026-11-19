@@ -125,6 +125,7 @@ cmd="bash '$script'"
 backup
 write --argjson ev '["Stop","Notification"]' --arg cmd "$cmd" --arg matcher "$matcher" "$strip | $add"
 
+echo "Heard sound notification for Claude Code (heard.dev)"
 echo "Added a Stop hook (finished) and a Notification hook (needs your input) to $settings."
 if jq -e '.disableAllHooks == true' "$settings" >/dev/null 2>&1; then
   echo "Note: \"disableAllHooks\" is true in $settings, so no hooks run until you change it."
